@@ -11,7 +11,7 @@ from inspect_ai.model import (
 from inspect_ai.util import json_schema
 
 OPENAI_GEN_HYP = {
-    "temperature": 0,
+    "temperature": 1,
     "max_tokens": 250,
     "top_p": 1.0,
     "frequency_penalty": 0,
@@ -23,7 +23,7 @@ any_json_schema = ResponseSchema(
     json_schema=json_schema({"type": "object", "additionalProperties": True}),
 )
 
-DEFAULT_EVAL_OPENAI_MODEL = "gpt-4o-2024-08-06"
+DEFAULT_EVAL_OPENAI_MODEL = "gpt-5-mini"
 
 
 def oaidicts_to_chatmessages(

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # viewable at https://huggingface.co/datasets/allenai/asta-bench
 HF_DATASET_DIR = "allenai/asta-bench"
 HF_CACHED_RESULTS_DIR = "allenai/asta-bench-solver-data"
-RUBRIC_SCORING_MODEL = "claude-sonnet-4-6"
+RUBRIC_SCORING_MODEL = "gpt-5-mini"
 NULL_SCORE = {
     "overall_score": {
         "average_required_all3": 0,
@@ -284,7 +284,7 @@ async def check_rubric(
 ) -> Tuple[float, str]:
     # select model to use for applying the rubrics (LLM-as-judge)
     model_str = RUBRIC_SCORING_MODEL
-    temperature = 0.0
+    temperature = 1.0
     max_tokens = 8000
 
     print(
@@ -1223,27 +1223,31 @@ async def _getLLMResponseJSON(
     response = None
 
     if "claude" in model:
-        inspect_messages = []
-        for msg in messages:
-            cls = (
-                ChatMessageAssistant
-                if msg["role"] == "assistant"
-                else ChatMessageSystem if msg["role"] == "system" else ChatMessageUser
-            )
-            inspect_messages.append(cls(content=msg["content"]))
-        # Not using max_tokens or temperature; they weren't used in the
-        # original when validating the scoring, so they are now vestigial
-        # max_tokens=maxTokens, temperature=temperature,
-        response = await get_model("anthropic/" + model).generate(
-            inspect_messages,
-            config=GenerateConfig(
-                max_retries=max_retries,
-                timeout=timeout,
-            ),
-        )
-
+        provider_prefix = "anthropic/"
+    elif model.startswith("openai/"):
+        provider_prefix = ""
+    elif "gpt" in model:
+        provider_prefix = "openai/"
     else:
         raise ValueError(f"Don't know how to score with model {model}!")
+
+    inspect_messages = []
+    for msg in messages:
+        cls = (
+            ChatMessageAssistant
+            if msg["role"] == "assistant"
+            else ChatMessageSystem if msg["role"] == "system" else ChatMessageUser
+        )
+        inspect_messages.append(cls(content=msg["content"]))
+    # Not passing max_tokens or temperature: gpt-5-mini rejects temperature!=1
+    # and the claude path historically ignored both anyway.
+    response = await get_model(provider_prefix + model).generate(
+        inspect_messages,
+        config=GenerateConfig(
+            max_retries=max_retries,
+            timeout=timeout,
+        ),
+    )
 
     print(".", end="")  # progress monitoring in local window
 

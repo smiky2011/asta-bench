@@ -99,7 +99,7 @@ def score_tables(unroller_model: str | Model, scorer_model: str | Model) -> Scor
         unrolled_table_str = await unroller_model.generate(
             final_input,
             config=GenerateConfig(
-                temperature=0.0, max_connections=10, response_schema=None
+                temperature=1.0, max_connections=10, response_schema=None
             ),
         )
         # Get individual statements from the unrolled table
@@ -116,7 +116,7 @@ def score_tables(unroller_model: str | Model, scorer_model: str | Model) -> Scor
             response = await scorer_model.generate(
                 final_input.replace("[STATEMENT]", statement),
                 config=GenerateConfig(
-                    temperature=0.0, max_connections=10, response_schema=None
+                    temperature=1.0, max_connections=10, response_schema=None
                 ),
             )
             supported_stmt = response.completion.lower()
@@ -216,8 +216,8 @@ def setup_snippet_tool() -> Solver:
 
 @task
 def arxivdigestables(
-    unroller_model: str | Model = "openai/gpt-4o",
-    scorer_model: str | Model = "openai/gpt-4o",
+    unroller_model: str | Model = "openai/gpt-5-mini",
+    scorer_model: str | Model = "openai/gpt-5-mini",
     with_snippet_search_tool: bool = True,
     with_table_editor_tool: bool = False,
     split: Literal["test", "val"] = "test",

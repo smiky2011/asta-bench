@@ -168,7 +168,7 @@ def score_sqa(
     model: str | Model,
     simplified_eval: bool = False,
     assess_jointly: bool = False,
-    temperature: float = 0.5,
+    temperature: float = 1.0,
     top_p: float = 0.95,
 ) -> Scorer:
     grader_model = get_model(model)
@@ -226,7 +226,7 @@ def score_citation(
     is_retrieverless: bool = False,
     sentence_wise_cit_eval: bool = True,
     all_at_once: bool = False,
-    temperature: float = 0.5,
+    temperature: float = 1.0,
     top_p: float = 0.95,
 ) -> Scorer:
     grader_model = get_model(model)
@@ -402,13 +402,13 @@ def weighted_mean_score(weights: Dict[str, float]) -> ScoreReducer:
 
 @scorer(metrics={k: [mean(), stderr()] for k in (["global_avg"] + METRIC_LABELS)})
 def score_all(
-    scorer_model: str | Model = "google/gemini-3-flash-preview",
+    scorer_model: str | Model = "openai/gpt-5-mini",
     is_retrieverless: bool = False,
     simplified_eval: bool = True,
     assess_jointly: bool = True,
     sentence_wise_cit_eval: bool = False,
     all_at_once: bool = True,
-    temperature: float = 0.5,
+    temperature: float = 1.0,
     top_p: float = 0.95,
 ) -> Scorer:
     scorers = [
@@ -464,14 +464,14 @@ def load_rubrics_data(split: str = "dev") -> List[Dict]:
 
 @task
 def sqa(
-    scorer_model: str | Model = "google/gemini-3-flash-preview",
+    scorer_model: str | Model = "openai/gpt-5-mini",
     limit: int | None = None,
     is_retrieverless: bool = False,
     simplified_eval: bool = True,
     assess_jointly: bool = True,
     sentence_wise_cit_eval: bool = False,
     all_at_once: bool = True,
-    temperature: float = 0.5,
+    temperature: float = 1.0,
     top_p: float = 0.95,
     with_search_tools: bool = True,
     with_report_editor_tool: bool = False,
