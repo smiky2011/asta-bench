@@ -30,7 +30,7 @@ parse_result_prompt = """previous_answer =
 output a json from the previous_answer like: dict("output" dict("results": [ dict("paper_id": .., "markdown_evidence": ...), ... ]))
 dont surround the output with "```" i know its a json
 """
-parse_result_model = get_model("openai/gpt-4o-2024-11-20")
+parse_result_model = get_model("openai/gpt-5-mini")
 
 
 async def get_model_json_output(state: TaskState) -> ExpectedAgentOutput:

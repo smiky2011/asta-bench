@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 """
 
 DEFAULT_CONTENT_RELEVANCE_CRITERION_NAME = "Relevance Criterion"
-grader_model = get_model("openai/gpt-4o-2024-11-20")
+grader_model = get_model("openai/gpt-5-mini")
 
 
 class Relevance(StrEnum):
