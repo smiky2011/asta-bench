@@ -79,18 +79,44 @@ async def get_response(
     n_try = 0
     while n_try < max_retry:
         response = await model.generate(oaidicts_to_chatmessages(create_prompt(prompt)))
-        output = response.choices[0].message.content.strip().strip("`json")
+        # gpt-5-mini (reasoning model) returns content as a list of typed
+        # parts (ContentText, ContentReasoning, ...) rather than a flat str
+        # like gpt-4o.  Concatenate text parts before parsing.
+        raw_content = response.choices[0].message.content
+        if isinstance(raw_content, list):
+            raw_content = "".join(
+                part.text for part in raw_content if hasattr(part, "text") and part.text
+            )
+        # gpt-5-mini may emit reasoning preamble + a fenced ```json``` block
+        # or a bare JSON object.  Try plain parse first; fall back to
+        # carving out the first JSON object found.
+        output = raw_content.strip()
         try:
-            response_json = json.loads(output)
-            return response_json
+            return json.loads(output)
         except ValueError:
+            pass
+        import re as _re
+        fenced = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", output, flags=_re.DOTALL)
+        candidate = fenced.group(1) if fenced else None
+        if candidate is None:
+            try:
+                start = output.index("{")
+                end = output.rindex("}")
+                candidate = output[start : end + 1]
+            except ValueError:
+                candidate = None
+        if candidate is not None:
+            try:
+                return json.loads(candidate)
+            except ValueError:
+                pass
+        if verbose:
+            print(f"Bad JSON output:\n\n{output}")
+        n_try += 1
+        if n_try < max_retry:
             if verbose:
-                print(f"Bad JSON output:\n\n{output}")
-            n_try += 1
-            if n_try < max_retry:
-                if verbose:
-                    print("Retrying...")
-            else:
-                if verbose:
-                    print("Retry limit reached")
+                print("Retrying...")
+        else:
+            if verbose:
+                print("Retry limit reached")
     return None

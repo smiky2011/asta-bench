@@ -134,7 +134,7 @@ def score_discoverybench() -> Scorer:
             gen_hypo=gen_hypo,
             gen_workflow=gen_workflow,
             dataset_meta=state.metadata["metadata"],
-            llm_used="gpt-4o-2024-08-06",
+            llm_used="gpt-5-mini",
             use_column_metadata=True,
         )
 
