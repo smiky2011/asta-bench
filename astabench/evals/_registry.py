@@ -38,6 +38,11 @@ from .paper_finder import (
 from .sqa import sqa, sqa_dev, sqa_test
 from .super import super, super_test, super_validation
 
+# Side-effect import: registers the astabench `react` solver, which shadows the
+# inspect-ai built-in so `--solver react` picks up task-provided tools from
+# `state.tools` (the `use_tools(...)` setup hook would otherwise be ignored).
+from astabench import solvers as _astabench_solvers  # noqa: F401
+
 __all__ = [
     "arithmetic_demo",
     "arithmetic_with_tools",
