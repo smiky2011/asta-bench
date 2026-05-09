@@ -179,7 +179,17 @@ async def ask_dimension_question(
             break
 
     if response is not None:
-        answer = response.choices[0].message.content.strip()
+        # Reasoning/thinking models (Claude Haiku 4.5, gpt-5-mini, ...) return
+        # message.content as a list of typed parts (ContentReasoning,
+        # ContentText, ...) rather than a flat string.  Concatenate the
+        # text-bearing parts before calling .strip().
+        raw_content = response.choices[0].message.content
+        if isinstance(raw_content, list):
+            raw_content = "".join(
+                part.text for part in raw_content
+                if hasattr(part, "text") and part.text
+            )
+        answer = raw_content.strip()
         score = get_score_for_var_rel(type=dimension, answer=answer)
 
     return dimension_question, answer, score
