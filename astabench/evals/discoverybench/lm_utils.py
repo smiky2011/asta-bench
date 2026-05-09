@@ -97,7 +97,17 @@ async def get_response(
     n_try = 0
     while n_try < max_retry:
         response = await model.generate(oaidicts_to_chatmessages(create_prompt(prompt)))
-        output = response.choices[0].message.content.strip().strip("`json")
+        # Reasoning/thinking models (Claude Haiku 4.5, gpt-5-mini, ...) return
+        # message.content as a list of typed parts (ContentReasoning,
+        # ContentText, ...) rather than a flat string.  Concatenate the
+        # text-bearing parts before calling .strip().
+        raw_content = response.choices[0].message.content
+        if isinstance(raw_content, list):
+            raw_content = "".join(
+                part.text for part in raw_content
+                if hasattr(part, "text") and part.text
+            )
+        output = raw_content.strip().strip("`json")
         try:
             response_json = json.loads(output)
             return response_json
