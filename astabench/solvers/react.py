@@ -6,19 +6,19 @@ kwarg.  Tools registered by the task's `setup=[use_tools(...)]` step land on
 because Inspect-AI's `as_solver()` only forwards `state.messages` into the
 inner `AgentState` (see `inspect_ai/agent/_as_solver.py`).
 
-This module registers a solver also named `react` that:
+This module registers a solver named `react` that:
 
   1. Captures `state.tools` (typically populated by the task's `use_tools(...)`).
   2. Captures any explicit `tools=` kwargs (e.g. from `-S tools=...`, rare).
   3. Calls `inspect_ai.agent.react(tools=<combined>, **rest_kwargs)`.
   4. Bridges that agent into a Solver via `as_solver()`.
 
-Inspect-AI resolves `--solver react` against the solver registry before
-falling back to the agent registry, so this registration shadows the
-built-in transparently — invocations like
-`uv run inspect eval astabench/super_test --solver react ...` keep working
-verbatim and the agent now actually sees `python_session` (and any other
-task-provided tool).
+Because @solver auto-namespaces the registration with the package name, this
+solver lands as `solver:astabench/react`.  The bare-name lookup in
+`inspect_ai._util.registry.registry_lookup` only falls back to
+`solver:inspect_ai/<name>`, so `--solver react` does NOT find it — it falls
+through to `agent:inspect_ai/react` (the stock built-in) and the bridge is
+lost.  **Invoke as `--solver astabench/react`** to pick up this shadow.
 
 Forwarded kwargs include all of `react()`'s knobs:
 `name, description, prompt, model, attempts, submit, on_continue,
