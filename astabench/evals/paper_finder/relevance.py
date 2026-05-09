@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 """
 
 DEFAULT_CONTENT_RELEVANCE_CRITERION_NAME = "Relevance Criterion"
-GRADER_MODEL_NAME = "openai/gpt-4o-2024-11-20"
+GRADER_MODEL_NAME = "anthropic/claude-haiku-4-5-20251001"
 
 
 class Relevance(StrEnum):

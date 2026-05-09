@@ -18,12 +18,28 @@ OPENAI_GEN_HYP = {
     "presence_penalty": 0,
 }
 
+ANTHROPIC_GEN_HYP = {
+    "temperature": 0,
+    "max_tokens": 250,
+    "top_p": 1.0,
+}
+
 any_json_schema = ResponseSchema(
     name="json",
     json_schema=json_schema({"type": "object", "additionalProperties": True}),
 )
 
-DEFAULT_EVAL_OPENAI_MODEL = "gpt-4o-2024-08-06"
+DEFAULT_EVAL_OPENAI_MODEL = "claude-haiku-4-5-20251001"
+
+
+def _resolve_provider(model: str) -> tuple[str, dict]:
+    if "/" in model:
+        prefix = model.split("/", 1)[0]
+        hyp = ANTHROPIC_GEN_HYP if prefix == "anthropic" else OPENAI_GEN_HYP
+        return model, hyp
+    if "claude" in model:
+        return f"anthropic/{model}", ANTHROPIC_GEN_HYP
+    return f"openai/{model}", OPENAI_GEN_HYP
 
 
 def oaidicts_to_chatmessages(
@@ -50,10 +66,11 @@ async def run_chatgpt_query_multi_turn(
     model_name=DEFAULT_EVAL_OPENAI_MODEL,
     json_response=False,
 ):
+    qualified, hyp = _resolve_provider(model_name)
     model = get_model(
-        f"openai/{model_name}",
+        qualified,
         config=GenerateConfig(
-            response_schema=any_json_schema if json_response else None, **OPENAI_GEN_HYP
+            response_schema=any_json_schema if json_response else None, **hyp
         ),
     )
     return await model.generate(oaidicts_to_chatmessages(messages))
@@ -75,7 +92,8 @@ async def get_response(
     model: str = DEFAULT_EVAL_OPENAI_MODEL,
     verbose=False,
 ):
-    model = get_model(f"openai/{model}", config=GenerateConfig(**OPENAI_GEN_HYP))
+    qualified, hyp = _resolve_provider(model)
+    model = get_model(qualified, config=GenerateConfig(**hyp))
     n_try = 0
     while n_try < max_retry:
         response = await model.generate(oaidicts_to_chatmessages(create_prompt(prompt)))

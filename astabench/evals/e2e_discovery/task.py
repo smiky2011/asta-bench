@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # viewable at https://huggingface.co/datasets/allenai/asta-bench
 HF_DATASET_DIR = "allenai/asta-bench"
 HF_CACHED_RESULTS_DIR = "allenai/asta-bench-solver-data"
-RUBRIC_SCORING_MODEL = "claude-sonnet-4-6"
+RUBRIC_SCORING_MODEL = "claude-haiku-4-5-20251001"
 NULL_SCORE = {
     "overall_score": {
         "average_required_all3": 0,
