@@ -134,7 +134,7 @@ def score_discoverybench() -> Scorer:
             gen_hypo=gen_hypo,
             gen_workflow=gen_workflow,
             dataset_meta=state.metadata["metadata"],
-            llm_used="claude-haiku-4-5-20251001",
+            llm_used="claude-haiku-4-5",
             use_column_metadata=True,
         )
 

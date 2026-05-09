@@ -29,7 +29,7 @@ any_json_schema = ResponseSchema(
     json_schema=json_schema({"type": "object", "additionalProperties": True}),
 )
 
-DEFAULT_EVAL_OPENAI_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_EVAL_OPENAI_MODEL = "claude-haiku-4-5"
 
 
 def _resolve_provider(model: str) -> tuple[str, dict]:
