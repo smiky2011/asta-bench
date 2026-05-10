@@ -21,7 +21,9 @@ OPENAI_GEN_HYP = {
 ANTHROPIC_GEN_HYP = {
     "temperature": 0,
     "max_tokens": 250,
-    "top_p": 1.0,
+    # Anthropic rejects requests with both `temperature` and `top_p` set
+    # ("`temperature` and `top_p` cannot both be specified for this model").
+    # Keep `temperature=0` (deterministic judging) and drop `top_p`.
 }
 
 any_json_schema = ResponseSchema(
