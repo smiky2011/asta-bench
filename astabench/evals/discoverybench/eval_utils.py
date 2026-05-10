@@ -1,4 +1,5 @@
 import json
+import re
 
 from openai import OpenAI
 
@@ -6,6 +7,38 @@ from astabench.evals.discoverybench.lm_utils import (
     get_response,
     run_chatgpt_query_multi_turn,
 )
+
+
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _loads_lenient(text):
+    """Parse JSON from text that may be empty, plain JSON, fenced (```json
+    {...} ```), or wrapped in preamble.
+
+    Reasoning/thinking models (Claude Haiku 4.5, gpt-5-mini, ...) routinely
+    emit fenced or preamble-wrapped output that bare `json.loads` can't
+    handle.  Try plain parse, then a fenced-block extraction, then a brace
+    carve-out.  Returns None on total failure.
+    """
+    if not text or not text.strip():
+        return None
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        pass
+    m = _FENCED_JSON_RE.search(text)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except (ValueError, TypeError):
+            pass
+    try:
+        start = text.index("{")
+        end = text.rindex("}")
+        return json.loads(text[start : end + 1])
+    except (ValueError, TypeError):
+        return None
 
 
 def prepare_dataset_metadata_json(dataset_meta, use_column_metadata=True):
@@ -38,8 +71,10 @@ def prepare_dataset_metadata_json(dataset_meta, use_column_metadata=True):
 def get_score_for_var_rel(type, answer):
 
     if type == "var":
+        var_json = _loads_lenient(answer)
+        if var_json is None:
+            return {"p": 0.0, "r": 0.0, "f1": 0.0}
         try:
-            var_json = json.loads(answer)
             p = 0.0
             r = 0.0
             f1 = 0.0
@@ -62,12 +97,17 @@ def get_score_for_var_rel(type, answer):
             }
             print(f"var_eval: {eval_rec}")
             return eval_rec
-        except:
+        except (KeyError, TypeError, ZeroDivisionError):
             return {"p": 0.0, "r": 0.0, "f1": 0.0}
     elif type == "rel":
         print(answer)
-        rel_json = json.loads(answer)
-        answer_str = rel_json["answer"].strip()
+        rel_json = _loads_lenient(answer)
+        if rel_json is None:
+            return 0.0
+        try:
+            answer_str = rel_json["answer"].strip()
+        except (KeyError, AttributeError, TypeError):
+            return 0.0
         if answer_str.startswith("A") or "very similar" in answer_str:
             return 1.0
         elif (
