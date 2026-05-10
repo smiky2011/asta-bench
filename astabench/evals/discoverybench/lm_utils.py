@@ -69,10 +69,16 @@ async def run_chatgpt_query_multi_turn(
     json_response=False,
 ):
     qualified, hyp = _resolve_provider(model_name)
+    # Anthropic rejects the structured-output schema we use for OpenAI
+    # ("output_format.schema: Invalid schema: Schema type is missing"); skip
+    # response_schema for anthropic and rely on the freeform-JSON parser in
+    # `get_response()` (which already tolerates fenced/preamble output from
+    # reasoning models).
+    use_schema = json_response and not qualified.startswith("anthropic/")
     model = get_model(
         qualified,
         config=GenerateConfig(
-            response_schema=any_json_schema if json_response else None, **hyp
+            response_schema=any_json_schema if use_schema else None, **hyp
         ),
     )
     return await model.generate(oaidicts_to_chatmessages(messages))
