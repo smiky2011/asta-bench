@@ -53,7 +53,14 @@ class CriteriaScore(Enum):
 
 
 class ResponseCriteriaScore(BaseModel):
-    criteria: str
+    # `criteria` is descriptive metadata; downstream scoring math uses only
+    # `criteria_idx` and `score` (see process_scores() and weighted_mean_score()
+    # below). LLM judges (Claude Haiku 4.5, gpt-5-mini, ...) occasionally omit
+    # this field, which triggers the 21-attempt Pydantic retry loop in
+    # retry_utils.generate_with_retry — empirically a single sample can chew
+    # 30+ min of judge time before conforming. Mark it optional so non-strict
+    # judge outputs pass validation; downstream code is unaffected.
+    criteria: str | None = None
     criteria_idx: int
     reasoning: str
     score: CriteriaScore
