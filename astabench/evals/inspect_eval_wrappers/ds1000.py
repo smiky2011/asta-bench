@@ -26,7 +26,9 @@ def _install_ds1000_postprocess_patch() -> None:
     SyntaxError: unterminated string literal -> Score(value="I") regardless
     of whether the actual code answer is correct.
     """
-    from inspect_evals.ds1000 import ds1000 as _ds1000_mod
+    import importlib
+
+    _ds1000_mod = importlib.import_module("inspect_evals.ds1000.ds1000")
 
     if getattr(_ds1000_mod.postprocess, "_astabench_patched", False):
         return
