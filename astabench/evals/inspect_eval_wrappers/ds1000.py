@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from importlib import resources
 from typing import Literal
@@ -9,6 +10,40 @@ from inspect_ai.solver import use_tools
 
 from astabench.evals.utils import not_implemented_solver
 from astabench.tools import python_session
+
+
+def _install_ds1000_postprocess_patch() -> None:
+    """Monkey-patch inspect_evals.ds1000.ds1000.postprocess so it extracts the
+    <code>...</code> block via a real delimited regex before falling back to
+    the upstream heuristic chain.
+
+    Upstream's extract_from_tags(text, "<code>", "</code>") only honors the
+    start tag if text.startswith("<code>"); otherwise it returns
+    text[0:first_close_tag], which captures any prose preamble the agent
+    emits before the code block. That blob then gets exec()'d inside the
+    sandbox (via test_execution(solution) in code_context), and the first
+    apostrophe in prose like "I'll call submit()..." triggers
+    SyntaxError: unterminated string literal -> Score(value="I") regardless
+    of whether the actual code answer is correct.
+    """
+    from inspect_evals.ds1000 import ds1000 as _ds1000_mod
+
+    if getattr(_ds1000_mod.postprocess, "_astabench_patched", False):
+        return
+
+    orig = _ds1000_mod.postprocess
+
+    def patched(code: str) -> str:
+        m = re.search(r"<code>(.*?)</code>", code, re.DOTALL)
+        if m:
+            return m.group(1)
+        return orig(code)
+
+    patched._astabench_patched = True  # type: ignore[attr-defined]
+    _ds1000_mod.postprocess = patched
+
+
+_install_ds1000_postprocess_patch()
 
 # Generated via
 # ```
