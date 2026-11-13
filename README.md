@@ -6,6 +6,62 @@ For more details, see the [AstaBench paper](https://allenai.org/papers/astabench
 
 AstaBench builds on top of the [InspectAI](https://inspect.ai-safety-institute.org.uk/) framework, which provides a flexible and extensible framework for running evaluations of AI systems.  While the instructions in this README aim to be self-contained with respect to common AstaBench uses, we recommend reading the [InspectAI documentation](https://inspect.aisi.org.uk/) for more complete details on its additional features and usage options.
 
+## About this fork: Harbor parity
+
+This is a fork of [allenai/asta-bench](https://github.com/allenai/asta-bench) used as the
+**original-benchmark side** of the parity experiment for the AstaBench adapter in
+[harbor-framework/adapters](https://github.com/harbor-framework/adapters) (`src/asta-bench`).
+Everything below this section is the upstream README.
+
+### What differs from upstream
+
+The task definitions, datasets and scoring formulas are upstream's. The fork changes:
+
+| Change | Files | Why |
+|---|---|---|
+| All LLM judges use `anthropic/claude-haiku-4-5` | `evals/arxivdigestables/task.py`, `evals/sqa/task.py`, `evals/e2e_discovery/task.py`, `evals/discoverybench/{task,lm_utils}.py`, `evals/paper_finder/{relevance,paper_finder_utils}.py` | Upstream uses a different judge per family (`gpt-4o`, `gemini-3-flash`, `claude-sonnet-4-6`); one model lets both parity sides run with a single API key. Sampling parameters are unchanged. **Scores are therefore not comparable with the public leaderboard.** |
+| `astabench/react` solver | `astabench/solvers/react.py` | Bare `--solver react` resolves to Inspect's built-in ReAct agent, which does not receive the tools a task installs via `use_tools` (the model is offered only `submit`). `astabench/react` passes the task's tools through. |
+| DS-1000 code extraction | `evals/inspect_eval_wrappers/ds1000.py` | Extract the `<code>...</code>` block before upstream's post-processing, so prose around the code is not executed. |
+| DiscoveryBench judge plumbing | `evals/discoverybench/{lm_utils,eval_utils}.py` | Anthropic request config; tolerate list-typed message content and fenced JSON in judge replies. |
+| SQA judge schema | `evals/sqa/rubric.py` | `criteria` is optional in the judge's reply (it is not used in scoring). |
+
+### Reproducing the original side of the parity experiment
+
+Both sides run the same samples with the same solver (`astabench/react`) and model. The Harbor
+adapter generates, for every task, an `inspect_config.json` naming the Inspect task, sample id and
+task arguments; [`scripts/harbor_parity_original_side.py`](scripts/harbor_parity_original_side.py)
+reads those files and runs exactly those samples here, with this repository's scorers.
+
+```bash
+# 1. In a checkout of harbor-framework/adapters: generate the parity subset (146 tasks)
+cd src/asta-bench && uv sync
+uv run asta-bench --split parity --output-dir /tmp/asta-parity-tasks
+
+# 2. In this repository (Python 3.11): run the original side
+uv sync
+export ANTHROPIC_API_KEY=...   # solver and judges
+export HF_TOKEN=...            # gated allenai/asta-bench and allenai/super datasets
+export ASTA_TOOL_KEY=...       # Asta literature tools
+uv run python scripts/harbor_parity_original_side.py \
+  --tasks-dir /tmp/asta-parity-tasks --log-dir logs/harbor-parity/run-1
+
+# Preview the commands without running anything
+uv run python scripts/harbor_parity_original_side.py \
+  --tasks-dir /tmp/asta-parity-tasks --log-dir logs/harbor-parity/run-1 --dry-run
+```
+
+Notes:
+
+- The script runs one `inspect eval` per sample, each with its own log directory, and skips
+  samples that already have a log, so an interrupted run can be resumed.
+- Code-execution families (`super`, `core_bench`, `e2e_discovery`, `discoverybench`, `ds1000`)
+  use this repository's Docker sandbox; Docker must be running.
+- `astabench/evals/paper_finder/detailed_reference.json`, if present, is a local run-mutated cache
+  of relevance judgements. The script refuses to start while it exists, because it would make
+  this side score differently from a clean checkout.
+- The Harbor side is documented in the adapter's README
+  (`src/asta-bench/README.md` in harbor-framework/adapters).
+
 ## Table of Contents
 
 - [Quickstart](#quickstart)
