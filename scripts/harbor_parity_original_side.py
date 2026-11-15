@@ -22,7 +22,10 @@ failing sample cannot affect another.  Credentials are read from the
 environment; nothing is written to this file.
 
 What is the same as the Harbor side: task, sample id, `-T` task args, the
-solver (`astabench/react`), the model and `--max-tool-output`.  What differs
+solver (`astabench/react`), the model, `--max-tool-output`, and the time limit:
+upstream sets none, so each sample gets `--time-limit` equal to the Harbor
+task's `[agent] timeout_sec` (read from the task's `task.toml`), and a sample
+that runs longer stops here where the Harbor agent would be stopped.  What differs
 by design: the Harbor bridge passes `--no-score` (the Harbor verifier scores)
 and, for code-execution tasks, `--sandbox local` (the solver's tools run in
 the Harbor task container); here the task's own Docker sandbox and scorer are
@@ -35,6 +38,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -73,8 +77,14 @@ def _strip_bridge_only_args(eval_args: list[str]) -> list[str]:
 def _load_tasks(tasks_dir: Path) -> list[tuple[str, dict]]:
     tasks = []
     for cfg_path in sorted(tasks_dir.glob("*/environment/workspace/inspect_config.json")):
-        task_id = cfg_path.parents[2].name
-        tasks.append((task_id, json.loads(cfg_path.read_text(encoding="utf-8"))))
+        task_dir = cfg_path.parents[2]
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        toml_path = task_dir / "task.toml"
+        if toml_path.exists():
+            agent = tomllib.loads(toml_path.read_text(encoding="utf-8")).get("agent", {})
+            if agent.get("timeout_sec"):
+                cfg["harbor_agent_timeout_sec"] = int(agent["timeout_sec"])
+        tasks.append((task_dir.name, cfg))
     return tasks
 
 
@@ -99,6 +109,8 @@ def _command(cfg: dict, log_dir: Path, solver: str, model: str) -> list[str]:
     for key, value in (cfg.get("solver_args") or {}).items():
         cmd += ["-S", f"{key}={value}"]
     cmd += _strip_bridge_only_args(list(cfg.get("eval_args") or []))
+    if cfg.get("harbor_agent_timeout_sec"):
+        cmd += ["--time-limit", str(cfg["harbor_agent_timeout_sec"])]
     return cmd
 
 
@@ -131,11 +143,28 @@ def main() -> int:
     parser.add_argument(
         "--dry-run", action="store_true", help="Print the commands and exit"
     )
+    parser.add_argument(
+        "--no-time-limit",
+        action="store_true",
+        help="Do not apply the Harbor agent timeout as --time-limit",
+    )
     args = parser.parse_args()
 
     tasks = _load_tasks(args.tasks_dir)
     if args.families:
         tasks = [t for t in tasks if any(t[0].startswith(f + "-") for f in args.families)]
+    missing = [t for t, cfg in tasks if not cfg.get("harbor_agent_timeout_sec")]
+    if missing and not args.no_time_limit:
+        print(
+            f"{len(missing)} task(s) have no task.toml [agent] timeout_sec, e.g. "
+            f"{missing[0]}; copy the whole generated task directories (not only "
+            "inspect_config.json), or pass --no-time-limit.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.no_time_limit:
+        for _, cfg in tasks:
+            cfg.pop("harbor_agent_timeout_sec", None)
     if not tasks:
         print(
             f"No inspect_config.json found under {args.tasks_dir} "
