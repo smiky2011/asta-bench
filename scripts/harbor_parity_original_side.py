@@ -39,7 +39,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 DEFAULT_SOLVER = "astabench/react"
-DEFAULT_MODEL = "anthropic/claude-haiku-4-5-20251001"
+DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
 
 # paper_finder keeps a run-mutated cache of relevance judgements next to its
 # code.  It is not part of the benchmark and the Harbor verifier has no such
