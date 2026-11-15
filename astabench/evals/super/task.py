@@ -25,7 +25,7 @@ from inspect_ai.scorer import (
     stderr,
 )
 from inspect_ai.solver import TaskState, use_tools
-from inspect_ai.util import span
+from inspect_ai.util import sandbox, span
 
 from astabench.evals.utils import extract_json_from_response, not_implemented_solver
 from astabench.util.sandbox.static.sandbox_types import CellHistoryItem
@@ -56,9 +56,15 @@ def json_to_sample(obj: dict[str, str], split: str) -> Sample:
 
     instance_rep = md5(str(obj["query_components"]).encode("utf-8")).hexdigest()
 
+    query = obj["query"]
+    if split == "Auto":
+        # Harbor parity fork: the Auto scorer re-runs the submitted command
+        # (see check_super_auto), so the task must ask for it.
+        query += AUTO_SUBMIT_INSTRUCTIONS
+
     return Sample(
         id=f"{obj['task_id']}_{instance_rep}",
-        input=obj["query"],
+        input=query,
         target=obj.get("answer", "NO_ANSWER"),
         metadata={
             "pre_execute_cells": obj.get("pre_execute_cells", []),
@@ -218,6 +224,106 @@ def evaluate_checkpoints(
     return sum(checkpoints_hit) / len(checkpoints_hit) if checkpoints_hit else 0.0
 
 
+# --- Auto split: verifier-run entrypoint check (Harbor parity fork) ----------
+
+AUTO_MIN_SECONDS = 10.0  # the upstream threshold in evaluate_entrypoints
+AUTO_WINDOW_SECONDS = 15  # stop the re-run here: threshold plus start-up margin
+
+AUTO_SUBMIT_INSTRUCTIONS = """
+
+---
+
+## How to submit
+
+When the entrypoint script runs, submit the exact shell command you used to
+run it and the directory you ran it from, as a JSON object:
+
+```
+{"command": "<shell command that runs the entrypoint script>", "cwd": "<absolute path of the directory to run it in>"}
+```
+
+The command is executed again, from that directory, to check your work: it must
+run the entrypoint script for at least 10 seconds without raising an error.
+Make it self-contained (absolute paths or paths relative to `cwd`; any
+environment variables written inline).
+"""
+
+
+def command_mentions_entrypoint(entrypoint: str, command: str) -> bool:
+    """The command-matching part of `evaluate_entrypoints`, unchanged."""
+    entrypoint_filename = os.path.basename(entrypoint)
+    ran_entrypoint = entrypoint_filename in command
+    if not ran_entrypoint:
+        ran_entrypoint = (
+            entrypoint_filename.replace(".py", "").replace("/", ".") in command
+            and "python -m" in command
+        )
+    return ran_entrypoint
+
+
+def entrypoint_output_is_clean(entrypoint: str, observation: str) -> bool:
+    """The output checks of `evaluate_entrypoints`, unchanged."""
+    entrypoint_filename = os.path.basename(entrypoint)
+    if "Traceback" in observation:
+        return False
+    if f"{entrypoint_filename}: error" in observation:
+        return False
+    return True
+
+
+_AUTO_RERUN_SCRIPT = r"""
+import json, os, signal, subprocess, sys, time
+command, cwd, window = sys.argv[1], sys.argv[2], float(sys.argv[3])
+log = "/tmp/_super_auto_entrypoint_run.log"
+if not os.path.isdir(cwd):
+    print(json.dumps({"exists": False, "elapsed": 0.0, "log": log}))
+    sys.exit(0)
+with open(log, "wb") as out:
+    start = time.monotonic()
+    proc = subprocess.Popen(["bash", "-lc", command], cwd=cwd,
+                            stdin=subprocess.DEVNULL, stdout=out,
+                            stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        proc.wait(timeout=window)
+    except subprocess.TimeoutExpired:
+        pass
+    elapsed = time.monotonic() - start
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        if proc.poll() is not None:
+            break
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            break
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            continue
+print(json.dumps({"exists": True, "elapsed": elapsed, "log": log}))
+"""
+
+
+async def rerun_entrypoint_command(command: str, cwd: str) -> tuple[float, str, bool]:
+    """Run `command` in `cwd` inside the sandbox for AUTO_WINDOW_SECONDS.
+
+    Returns (seconds it ran, combined stdout/stderr so far, whether cwd exists).
+    """
+    result = await sandbox().exec(
+        ["python3", "-c", _AUTO_RERUN_SCRIPT, command, cwd, str(AUTO_WINDOW_SECONDS)],
+        timeout=AUTO_WINDOW_SECONDS + 60,
+    )
+    if not result.success:
+        raise RuntimeError(f"entrypoint re-run harness failed: {result.stderr}")
+    info = json.loads(result.stdout.strip().splitlines()[-1])
+    if not info["exists"]:
+        return 0.0, "", False
+    # Read as bytes and decode leniently, as the Harbor verifier does: an
+    # entrypoint that prints non-UTF-8 bytes must be scored, not error out.
+    raw = await sandbox().read_file(info["log"], text=False)
+    observation = raw.decode("utf-8", errors="replace")
+    return float(info["elapsed"]), observation, True
+
+
 def evaluate_entrypoints(entrypoint: str, agent_history: List[Dict]) -> float:
     """Evaluates if a specific entrypoint (i.e., a Python or bash script) was successfully
     executed by the agent. Uses the trajectory to find matches, we specifically check:
@@ -357,24 +463,53 @@ def check_super_execution() -> Scorer:
     }
 )
 def check_super_auto() -> Scorer:
-    """Performs checks for the auto split measured number of submissions and entry points."""
+    """Auto split: re-run the submitted entrypoint command and check it.
+
+    Harbor parity fork.  Upstream applied `evaluate_entrypoints` to an
+    execution history taken from the agent's own answer or from
+    `jupyter_cell_history.json` in the agent's working directory -- both
+    agent-writable, so the check could be satisfied without running anything.
+    The rule is unchanged (command mentions the entrypoint; no `Traceback` or
+    `<entrypoint>: error` in its output; ran at least 10 seconds), but the
+    evidence now comes from running the submitted command here, in the
+    sandbox, for a short window.  The Harbor adapter's verifier
+    (asta_bench/benchmarks/super_auto.py) does exactly the same.
+    """
 
     async def score(state: TaskState, target: Target) -> Score:
-        try:
-            submission, submitted, trajectory = await parse_super_output(
-                state.output.completion
-            )
-        except Exception as e:
+        completion = state.output.completion
+        entrypoint = state.metadata["entrypoint"]
+        answer = extract_json_from_response(completion)
+        command = answer.get("command") if isinstance(answer, dict) else None
+        cwd = answer.get("cwd") if isinstance(answer, dict) else None
+
+        def failed(explanation: str, submitted: float) -> Score:
             return Score(
-                value={"submitted": 0.0, "entrypoint": 0.0},
-                answer=state.output.completion,
-                explanation=f"Error parsing output: {e}",
+                value={"submitted": submitted, "entrypoint": 0.0},
+                answer=completion,
+                explanation=explanation,
             )
-        entrypoint = evaluate_entrypoints(state.metadata["entrypoint"], trajectory)
+
+        if not isinstance(command, str) or not command.strip():
+            return failed("answer has no `command` string", 0.0)
+        if not isinstance(cwd, str) or not os.path.isabs(cwd):
+            return failed(f"answer `cwd` is not an absolute directory: {cwd!r}", 0.0)
+        if not command_mentions_entrypoint(entrypoint, command):
+            return failed(f"command does not run the entrypoint {entrypoint!r}", 1.0)
+
+        elapsed, observation, exists = await rerun_entrypoint_command(command, cwd)
+        if not exists:
+            return failed(f"`cwd` does not exist in the sandbox: {cwd!r}", 1.0)
+        clean = entrypoint_output_is_clean(entrypoint, observation)
+        passed = elapsed >= AUTO_MIN_SECONDS and clean
 
         return Score(
-            value={"submitted": submitted, "entrypoint": entrypoint},
-            answer=str(submission),
+            value={"submitted": 1.0, "entrypoint": 1.0 if passed else 0.0},
+            answer=completion,
+            explanation=(
+                f"re-ran {command!r} in {cwd!r}: ran {elapsed:.1f}s, "
+                f"clean_output={clean}"
+            ),
         )
 
     return score
