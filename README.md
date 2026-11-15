@@ -38,7 +38,7 @@ cd src/asta-bench && uv sync
 uv run asta-bench --split parity --output-dir /tmp/asta-parity-tasks
 
 # 2. In this repository (Python 3.11): run the original side
-uv sync
+uv sync --frozen               # install exactly the committed uv.lock
 export ANTHROPIC_API_KEY=...   # solver and judges
 export HF_TOKEN=...            # gated allenai/asta-bench and allenai/super datasets
 export ASTA_TOOL_KEY=...       # Asta literature tools
