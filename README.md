@@ -24,6 +24,8 @@ The task definitions, datasets and scoring formulas are upstream's. The fork cha
 | DS-1000 code extraction | `evals/inspect_eval_wrappers/ds1000.py` | Extract the `<code>...</code>` block before upstream's post-processing, so prose around the code is not executed. |
 | DiscoveryBench judge plumbing | `evals/discoverybench/{lm_utils,eval_utils}.py` | Anthropic request config; tolerate list-typed message content and fenced JSON in judge replies. |
 | SQA judge schema | `evals/sqa/rubric.py` | `criteria` is optional in the judge's reply (it is not used in scoring). |
+| SUPER Auto scoring | `evals/super/task.py` | Upstream's `evaluate_entrypoints` reads an execution history the agent can write. The agent now also submits the command it ran (`{"command", "cwd"}`, requested in the query) and the scorer re-runs it for 15 s in the sandbox, applying upstream's rule (at least 10 s without a traceback) to the real output. The Harbor adapter scores the same way. |
+| Locked environment | `uv.lock` | Upstream ignores its lock file; an unlocked install resolves `anthropic` 2.x, which breaks `inspect_ai==0.3.203`. Install with `uv sync --frozen`. |
 
 ### Reproducing the original side of the parity experiment
 
@@ -33,7 +35,7 @@ task arguments; [`scripts/harbor_parity_original_side.py`](scripts/harbor_parity
 reads those files and runs exactly those samples here, with this repository's scorers.
 
 ```bash
-# 1. In a checkout of harbor-framework/adapters: generate the parity subset (146 tasks)
+# 1. In a checkout of harbor-framework/adapters: generate the parity subset (150 tasks)
 cd src/asta-bench && uv sync
 uv run asta-bench --split parity --output-dir /tmp/asta-parity-tasks
 
@@ -42,8 +44,9 @@ uv sync --frozen               # install exactly the committed uv.lock
 export ANTHROPIC_API_KEY=...   # solver and judges
 export HF_TOKEN=...            # gated allenai/asta-bench and allenai/super datasets
 export ASTA_TOOL_KEY=...       # Asta literature tools
-uv run python scripts/harbor_parity_original_side.py \
-  --tasks-dir /tmp/asta-parity-tasks --log-dir logs/harbor-parity/run-1
+uv run --frozen python scripts/harbor_parity_original_side.py \
+  --tasks-dir /tmp/asta-parity-tasks --log-dir logs/harbor-parity/run-1 \
+  --model anthropic/claude-haiku-4-5 --concurrency 4
 
 # Preview the commands without running anything
 uv run python scripts/harbor_parity_original_side.py \
@@ -53,12 +56,19 @@ uv run python scripts/harbor_parity_original_side.py \
 Notes:
 
 - The script runs one `inspect eval` per sample, each with its own log directory, and skips
-  samples that already have a log, so an interrupted run can be resumed.
+  samples that already have a log, so an interrupted run can be resumed. To retry a sample,
+  move its log directory away first.
+- Each sample gets the Harbor task's `[agent] timeout_sec` (from the `task.toml` next to its
+  `inspect_config.json`) as Inspect's `--time-limit`, so both sides stop the agent at the same
+  point. The script refuses to start without `task.toml` unless `--no-time-limit` is given.
+- The parity runs used the undated model alias `claude-haiku-4-5` (the API endpoint used for
+  parity serves only the alias).
 - Code-execution families (`super`, `core_bench`, `e2e_discovery`, `discoverybench`, `ds1000`)
   use this repository's Docker sandbox; Docker must be running.
 - `astabench/evals/paper_finder/detailed_reference.json`, if present, is a local run-mutated cache
   of relevance judgements. The script refuses to start while it exists, because it would make
-  this side score differently from a clean checkout.
+  this side score differently from a clean checkout. A run creates it, so move it away between
+  runs.
 - The Harbor side is documented in the adapter's README
   (`src/asta-bench/README.md` in harbor-framework/adapters).
 
